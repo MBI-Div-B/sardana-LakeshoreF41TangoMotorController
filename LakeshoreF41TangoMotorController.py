@@ -47,7 +47,7 @@ class LakeshoreF41TangoMotorController(MotorController):
         
     def AddDevice(self, axis):
         self._motors[axis] = {}
-        self._motors[axis]['is_moving'] = None
+        self._motors[axis]['is_moving'] = False
         self._motors[axis]['move_start_time'] = None
         self._motors[axis]['target'] = None
         self._motors[axis]['threshold_CL'] = 1e-3
@@ -78,15 +78,14 @@ class LakeshoreF41TangoMotorController(MotorController):
                     if (now - start_time) < self._timeout:  # no timeout
                         state = State.Moving
                     else:  # timeout
-                        self._log.warning('LKSf41 Timeout')
+                        self._log.warning('LKSf41 took too long to reach pos.')
                         self.StopOne(axis)
                         state = State.On
                 else:  # target reached before timeout
                     self._motors[axis]['is_moving'] = False
                     state = State.On
             else: ## open loop, still moving; no feedback, just wait time
-                waittime = self._motors[axis]['wait_OL']
-                if (now - start_time) < waittime:
+                if (now - start_time) < self._motors[axis]['wait_OL']:
                     state = State.Moving
                 else:
                     self._motors[axis]['is_moving'] = False
