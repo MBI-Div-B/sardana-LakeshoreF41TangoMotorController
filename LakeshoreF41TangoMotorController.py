@@ -51,8 +51,6 @@ class LakeshoreF41TangoMotorController(MotorController):
         self._motors[axis]['is_moving'] = False
         self._motors[axis]['move_start_time'] = None
         self._motors[axis]['target'] = None
-        self._motors[axis]['threshold_CL'] = 1e-3
-        self._motors[axis]['wait_OL'] = 0.1
 
     def DeleteDevice(self, axis):
         del self._motors[axis]
