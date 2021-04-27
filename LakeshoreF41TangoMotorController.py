@@ -40,7 +40,7 @@ class LakeshoreF41TangoMotorController(MotorController):
 
         print('Lakeshore F41 Initialization ...')
         self.proxy = DeviceProxy(self.tangoFQDN)
-        self.openloop = self.proxy.OpenLoop
+        self._openloop = self.proxy.OpenLoop
         print('SUCCESS')
         self._timeout = 10
         self._motors = {}
@@ -105,7 +105,7 @@ class LakeshoreF41TangoMotorController(MotorController):
         if axis == 0:
             return self.proxy.MagneticField
         else:
-            if self.openloop:
+            if self._openloop:
                 return self.proxy.setpointopenloop
         return None
 
@@ -113,9 +113,11 @@ class LakeshoreF41TangoMotorController(MotorController):
         self.proxy.FieldControl = 1
         if axis == 0:  # closed loop
             self.proxy.OpenLoop = 0
+            self._openloop = False
             self.proxy.SetpointField = position
         else:  # open loop
             self.proxy.OpenLoop = 1
+            self._openloop = True
             self.proxy.SetpointOpenLoop = position
         
         self._motors[axis]['move_start_time'] = time.time()
