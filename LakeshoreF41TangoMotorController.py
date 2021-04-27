@@ -19,13 +19,13 @@ class LakeshoreF41TangoMotorController(MotorController):
             Description: 'The FQDN of the LKSf41Gaussmeter Tango DS',
             DefaultValue: 'domain/family/member'},
     }
-    axis_attributes = {
-        'threshold_CL': {
+    ctrl_attributes = {
+        'CL_threshold': {
             Type: float,
             Access: 'read_write',
             Description: 'Accuracy threshold for closed loop moves (Tesla)',
             DefaultValue: 1e-3},
-        'wait_OL': {
+        'OL_waittime': {
             Type: float,
             Access: 'read_write',
             Description: 'Wait time after open loop moves (seconds)',
@@ -40,7 +40,8 @@ class LakeshoreF41TangoMotorController(MotorController):
 
         print('Lakeshore F41 Initialization ...')
         self.proxy = DeviceProxy(self.tangoFQDN)
-        self._openloop = self.proxy.OpenLoop
+        self._OL_waittime = 0.1
+        self._CL_threshold = 0.001
         print('SUCCESS')
         self._timeout = 10
         self._motors = {}
@@ -73,8 +74,7 @@ class LakeshoreF41TangoMotorController(MotorController):
                 state = State.On
             elif axis == 0:  # closed loop, still moving
                 pos = self.ReadOne(axis)
-                threshold = self._motors[axis]['threshold_CL']
-                if abs(pos - target) > threshold:  # outside threshold
+                if abs(pos - target) > self._CL_threshold:  # outside threshold
                     if (now - start_time) < self._timeout:  # no timeout
                         state = State.Moving
                     else:  # timeout
@@ -85,7 +85,7 @@ class LakeshoreF41TangoMotorController(MotorController):
                     self._motors[axis]['is_moving'] = False
                     state = State.On
             else: ## open loop, still moving; no feedback, just wait time
-                if (now - start_time) < self._motors[axis]['wait_OL']:
+                if (now - start_time) < self._OL_waittime:
                     state = State.Moving
                 else:
                     self._motors[axis]['is_moving'] = False
@@ -104,7 +104,7 @@ class LakeshoreF41TangoMotorController(MotorController):
         if axis == 0:
             return self.proxy.MagneticField
         else:
-            if self._openloop:
+            if self.proxy.OpenLoop == 1:
                 return self.proxy.setpointopenloop
         return None
 
@@ -112,11 +112,9 @@ class LakeshoreF41TangoMotorController(MotorController):
         self.proxy.FieldControl = 1
         if axis == 0:  # closed loop
             self.proxy.OpenLoop = 0
-            self._openloop = False
             self.proxy.SetpointField = position
         else:  # open loop
             self.proxy.OpenLoop = 1
-            self._openloop = True
             self.proxy.SetpointOpenLoop = position
         
         self._motors[axis]['move_start_time'] = time.time()
@@ -135,12 +133,17 @@ class LakeshoreF41TangoMotorController(MotorController):
     def AbortOne(self, axis):
         pass
 
-    def SetAxisExtraPar(self, axis, name, value):
-        if name in ['threshold_CL', 'wait_OL']:
-            self._motors[axis][name] = value
+    def getCL_threshold(self):
+        return self._CL_threshold
+    
+    def setCL_threshold(self, value):
+        self._CL_threshold = value
+    
+    def getOL_waittime(self):
+        return self._OL_waittime
 
-    def GetAxisExtraPar(self, axis, name):
-        return self._motors[axis].get(name, None)
+    def setOL_waittime(self, value):
+        self._OL_waittime = value
     
     def SendToCtrl(self, cmd):
         """
