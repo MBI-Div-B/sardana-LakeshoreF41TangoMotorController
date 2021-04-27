@@ -50,6 +50,8 @@ class LakeshoreF41TangoMotorController(MotorController):
         self._motors[axis]['is_moving'] = None
         self._motors[axis]['move_start_time'] = None
         self._motors[axis]['target'] = None
+        self._motors[axis]['threshold_CL'] = 1e-3
+        self._motors[axis]['wait_OL'] = 0.1
 
     def DeleteDevice(self, axis):
         del self._motors[axis]
@@ -129,6 +131,13 @@ class LakeshoreF41TangoMotorController(MotorController):
 
     def AbortOne(self, axis):
         pass
+
+    def SetAxisExtraPar(self, axis, name, value):
+        if name in ['threshold_CL', 'wait_OL']:
+            self._motors[axis][name] = value
+
+    def GetAxisExtraPar(self, axis, name):
+        return self._motors[axis].get(name, None)
     
     def SendToCtrl(self, cmd):
         """
