@@ -6,12 +6,29 @@ from tango import DeviceProxy
 import time
 
 class LakeshoreF41TangoMotorController(MotorController):
-    ctrl_properties = {'tangoFQDN': {Type: str,
-                                     Description: 'The FQDN of the LKSf41Gaussmeter Tango DS',
-                                     DefaultValue: 'domain/family/member'},
-                       }
+    '''Sardana motor controller for DESY Lakeshore F41 tango device server.
+
+    This controller is for use with an F41 Gaussmeter with the optional field
+    control module. It uses two axes:
+        0 -> closed loop operation (Tesla)
+        1 -> open loop (Ampere)
+    '''
+    ctrl_properties = {
+        'tangoFQDN': {
+            Type: str,
+            Description: 'The FQDN of the LKSf41Gaussmeter Tango DS',
+            DefaultValue: 'domain/family/member'},
+        'threshold_CL': {
+            Type: float,
+            Description: 'Accuracy threshold for closed loop moves (Tesla)',
+            DefaultValue: 1e-3},
+        'wait_OL': {
+            Type: float,
+            Description: 'Wait time after open loop moves (seconds)',
+            DefaultValue: 0.1},
+        }
     
-    MaxDevice = 1
+    MaxDevice = 2
     
     def __init__(self, inst, props, *args, **kwargs):
         super(MotorController, self).__init__(
@@ -19,9 +36,9 @@ class LakeshoreF41TangoMotorController(MotorController):
 
         print('Lakeshore F41 Initialization ...')
         self.proxy = DeviceProxy(self.tangoFQDN)
+        self.openloop = self.proxy.OpenLoop
         print('SUCCESS')
         self._timeout = 10
-        self._threshold = 0.002
         self._motors = {}
         
     def AddDevice(self, axis):
@@ -34,52 +51,77 @@ class LakeshoreF41TangoMotorController(MotorController):
         del self._motors[axis]
 
     def StateOne(self, axis):
+        '''Determine motor state.
+
+        In closed loop, timeouts may occur depending on desired accuracy.
+        For open loop mode, the actual current value is unknown, so just wait
+        for a specified time.
+        '''
         limit_switches = MotorController.NoLimitSwitch
-        
-        pos = self.ReadOne(axis)
         now = time.time()
-        
+        target = self._motors[axis]['target']
+        start_time = self._motors[axis]['move_start_time']
+
         try:
             if self._motors[axis]['is_moving'] == False:
                 state = State.On
-            elif self._motors[axis]['is_moving'] & (abs(pos-self._motors[axis]['target']) > self._threshold): 
-                # moving and not in threshold window
-                if (now-self._motors[axis]['move_start_time']) < self._timeout:
-                    # before timeout
-                    state = State.Moving
-                else:
-                    # after timeout
-                    self._log.warning('Lakeshore Timeout')
+            elif axis == 0:  # closed loop, still moving
+                pos = self.ReadOne(axis)
+                if abs(pos - target) > self.threshold_CL:  # outside threshold
+                    if (now - start_time) < self._timeout:  # no timeout
+                        state = State.Moving
+                    else:  # timeout
+                        self._log.warning('LKSf41 Timeout')
+                        self.StopOne(axis)
+                        state = State.On
+                else:  # target reached before timeout
                     self._motors[axis]['is_moving'] = False
                     state = State.On
-            elif self._motors[axis]['is_moving'] & (abs(pos-self._motors[axis]['target']) <= self._threshold): 
-                # moving and within threshold window
-                self._motors[axis]['is_moving'] = False
-                state = State.On
-            else:
-                state = State.Fault
-        except:
+            else: ## open loop, still moving; no feedback, just wait time
+                if (now - start_time) < self.wait_OL:
+                    state = State.Moving
+                else:
+                    self._motors[axis]['is_moving'] = False
+                    state = State.On
+        except Exception:
             state = State.Fault
         
         return state, 'all fine', limit_switches
 
     def ReadOne(self, axis):
-        return self.proxy.MagneticField
+        '''Return magnetic field (axis 0) or open loop setpoint (axis 1).
+        
+        Magnetic field value is valid in both modes, open loop setpoint only
+        in open loop mode.
+        '''
+        if axis == 0:
+            return self.proxy.MagneticField
+        else:
+            if self.openloop:
+                return self.proxy.setpointopenloop
+        return None
 
     def StartOne(self, axis, position):
-        if self.proxy.OpenLoop != 0:
-            print('LKSf41: switching to closed loop')
+        self.proxy.FieldControl = 1
+        if axis == 0:  # closed loop
             self.proxy.OpenLoop = 0
-        if self.proxy.FieldControl != 1:
-            print('LKSf41: enabling field control')
-            self.proxy.FieldControl = 1
-        self.proxy.SetpointField = position
+            self.proxy.SetpointField = position
+        else:  # open loop
+            self.proxy.OpenLoop = 1
+            self.proxy.SetpointOpenLoop = position
+        
         self._motors[axis]['move_start_time'] = time.time()
         self._motors[axis]['is_moving'] = True
         self._motors[axis]['target'] = position
 
     def StopOne(self, axis):
-        return self.proxy.MagneticField
+        if axis == 0:
+            curr = self.proxy.MagneticField
+            self._motors[axis]['target'] = curr
+            self._motors[axis]['is_moving'] = False
+            return curr
+        else:
+            return self.proxy.SetpointOpenLoop
 
     def AbortOne(self, axis):
         pass
