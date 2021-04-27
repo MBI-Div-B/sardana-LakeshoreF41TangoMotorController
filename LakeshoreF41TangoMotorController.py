@@ -1,6 +1,6 @@
 from sardana import State
 from sardana.pool.controller import MotorController
-from sardana.pool.controller import Type, Description, DefaultValue
+from sardana.pool.controller import Type, Description, DefaultValue, Access
 
 from tango import DeviceProxy
 import time
@@ -18,12 +18,16 @@ class LakeshoreF41TangoMotorController(MotorController):
             Type: str,
             Description: 'The FQDN of the LKSf41Gaussmeter Tango DS',
             DefaultValue: 'domain/family/member'},
+    }
+    axis_attributes = {
         'threshold_CL': {
             Type: float,
+            Access: 'read_write',
             Description: 'Accuracy threshold for closed loop moves (Tesla)',
             DefaultValue: 1e-3},
         'wait_OL': {
             Type: float,
+            Access: 'read_write',
             Description: 'Wait time after open loop moves (seconds)',
             DefaultValue: 0.1},
         }
