@@ -73,7 +73,8 @@ class LakeshoreF41TangoMotorController(MotorController):
                 state = State.On
             elif axis == 0:  # closed loop, still moving
                 pos = self.ReadOne(axis)
-                if abs(pos - target) > self.threshold_CL:  # outside threshold
+                threshold = self._motors[axis]['threshold_CL']
+                if abs(pos - target) > threshold:  # outside threshold
                     if (now - start_time) < self._timeout:  # no timeout
                         state = State.Moving
                     else:  # timeout
@@ -84,7 +85,8 @@ class LakeshoreF41TangoMotorController(MotorController):
                     self._motors[axis]['is_moving'] = False
                     state = State.On
             else: ## open loop, still moving; no feedback, just wait time
-                if (now - start_time) < self.wait_OL:
+                waittime = self._motors[axis]['wait_OL']
+                if (now - start_time) < waittime:
                     state = State.Moving
                 else:
                     self._motors[axis]['is_moving'] = False
