@@ -1,5 +1,5 @@
 from sardana import State
-from sardana.pool.controller import MotorController
+from sardana.pool.controller import MotorController, OneDController
 from sardana.pool.controller import Type, Description, DefaultValue, Access
 
 from tango import DeviceProxy
@@ -20,16 +20,21 @@ class LakeshoreF41TangoMotorController(MotorController):
             DefaultValue: 'domain/family/member'},
     }
     ctrl_attributes = {
-        'CL_threshold': {
+        'CL_threshold_rel': {
             Type: float,
             Access: 'read_write',
-            Description: 'Accuracy threshold for closed loop moves (Tesla)',
-            DefaultValue: 1e-3},
+            Description: 'Relative accuracy threshold for closed loop moves',
+            DefaultValue: 0.02},
+        'CL_threshold_abs': {
+            Type: float,
+            Access: 'read_write',
+            Description: 'Absolute accuracy threshold for closed loop moves (mT)',
+            DefaultValue: 0.5},
         'OL_waittime': {
             Type: float,
             Access: 'read_write',
             Description: 'Wait time after open loop moves (seconds)',
-            DefaultValue: 0.1},
+            DefaultValue: 0.2},
         }
     
     MaxDevice = 2
@@ -40,17 +45,23 @@ class LakeshoreF41TangoMotorController(MotorController):
 
         print('Lakeshore F41 Initialization ...')
         self.proxy = DeviceProxy(self.tangoFQDN)
-        self._OL_waittime = 0.1
-        self._CL_threshold = 0.001
+        self._OL_waittime = 0.2
+        self._th_rel = 0.02
+        self._th_abs = 0.5
         print('SUCCESS')
-        self._timeout = 10
+        self._timeout = 20
         self._motors = {}
         
     def AddDevice(self, axis):
         self._motors[axis] = {}
         self._motors[axis]['is_moving'] = False
-        self._motors[axis]['move_start_time'] = None
-        self._motors[axis]['target'] = None
+        self._motors[axis]['move_start_time'] = 0
+        self._motors[axis]['move_end_time'] = 0
+        if axis == 0:
+            pos = self.proxy.SetPointField
+        else:
+            pos = self.proxy.SetPointOpenLoop
+        self._motors[axis]['target'] = pos
 
     def DeleteDevice(self, axis):
         del self._motors[axis]
@@ -72,7 +83,12 @@ class LakeshoreF41TangoMotorController(MotorController):
                 state = State.On
             elif axis == 0:  # closed loop, still moving
                 pos = self.ReadOne(axis)
-                if abs(pos - target) > self._CL_threshold:  # outside threshold
+                diff_abs = abs(pos - target)
+                try:
+                    diff_rel = diff_abs / target
+                except ZeroDivisionError:
+                    diff_rel = 1
+                if (diff_rel > self._th_rel) and (diff_abs > self._th_abs):  # outside threshold
                     if (now - start_time) < self._timeout:  # no timeout
                         state = State.Moving
                     else:  # timeout
@@ -83,7 +99,8 @@ class LakeshoreF41TangoMotorController(MotorController):
                     self._motors[axis]['is_moving'] = False
                     state = State.On
             else: ## open loop, still moving; no feedback, just wait time
-                if (now - start_time) < self._OL_waittime:
+                # if (now - start_time) < self._OL_waittime:
+                if now < self._motors[axis]["move_end_time"]:
                     state = State.Moving
                 else:
                     self._motors[axis]['is_moving'] = False
@@ -100,28 +117,32 @@ class LakeshoreF41TangoMotorController(MotorController):
         in open loop mode.
         '''
         if axis == 0:
-            return self.proxy.MagneticField
+            return 1e3 * self.proxy.MagneticField
         else:
             if self.proxy.OpenLoop == 1:
                 return self.proxy.setpointopenloop
         return None
 
     def StartOne(self, axis, position):
-        self.proxy.FieldControl = 1
         if axis == 0:  # closed loop
             self.proxy.OpenLoop = 0
-            self.proxy.SetpointField = position
+            self.proxy.SetpointField = 1e-3 * position
+            self.proxy.FieldControl = 1
         else:  # open loop
             self.proxy.OpenLoop = 1
             self.proxy.SetpointOpenLoop = position
+            self.proxy.FieldControl = 1
         
-        self._motors[axis]['move_start_time'] = time.time()
+        now = time.time()
+        self._motors[axis]['move_start_time'] = now
+        duration = 3 * abs(self._motors[axis]['target'] - position)
+        self._motors[axis]['move_end_time'] = min(max(1, duration), 10) + now
         self._motors[axis]['is_moving'] = True
         self._motors[axis]['target'] = position
 
     def StopOne(self, axis):
         if axis == 0:
-            curr = self.proxy.MagneticField
+            curr = 1e3 * self.proxy.MagneticField
             self._motors[axis]['target'] = curr
             self._motors[axis]['is_moving'] = False
             return curr
@@ -131,12 +152,18 @@ class LakeshoreF41TangoMotorController(MotorController):
     def AbortOne(self, axis):
         pass
 
-    def getCL_threshold(self):
-        return self._CL_threshold
+    def getCL_threshold_rel(self):
+        return self._th_rel
     
-    def setCL_threshold(self, value):
-        self._CL_threshold = value
+    def setCL_threshold_rel(self, value):
+        self._th_rel = value
     
+    def getCL_threshold_abs(self):
+        return self._th_abs
+    
+    def setCL_threshold_abs(self, value):
+        self._th_abs = value
+
     def getOL_waittime(self):
         return self._OL_waittime
 
@@ -163,3 +190,12 @@ class LakeshoreF41TangoMotorController(MotorController):
             self._log.warning('Invalid command')
             return 'ERROR: Invalid command requested.'
         pass
+
+
+class LakeshoreF41TangoCounterController(OneDController):
+    """Collect a trace of magnet field values at given intervals"""
+
+    def __init__(self, inst, props, *args, **kwargs):
+        super().__init__(inst, props, *args, **kwargs)
+
+
