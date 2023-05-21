@@ -94,9 +94,7 @@ class LakeshoreF41TangoMotorController(MotorController):
                     diff_rel = diff_abs / target
                 except ZeroDivisionError:
                     diff_rel = 1
-                if (diff_rel > self._th_rel) and (
-                    diff_abs > self._th_abs
-                ):  # outside threshold
+                if (diff_rel > self._th_rel) and (diff_abs > self._th_abs):  # outside threshold
                     if (now - start_time) < self._timeout:  # no timeout
                         state = State.Moving
                     else:  # timeout
@@ -106,7 +104,7 @@ class LakeshoreF41TangoMotorController(MotorController):
                 else:  # target reached before timeout
                     self._motors[axis]["is_moving"] = False
                     state = State.On
-            else:  ## open loop, still moving; no feedback, just wait time
+            else: ## open loop, still moving; no feedback, just wait time
                 # if (now - start_time) < self._OL_waittime:
                 if now < self._motors[axis]["move_end_time"]:
                     state = State.Moving
